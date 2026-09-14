@@ -56,6 +56,27 @@ t("定稿拦截：循环引用（含多级）", () => {
   assert.strictEqual(Core.finalizeErrors([s], s.id).length, 1);
 });
 
+t("定稿拦截：共享节点下的闭环（无环分支 + 公共节点成环）", () => {
+  // S 先经无环分支 A、再经分支 B 汇聚到公共节点 C，C 与 D 自成闭环且不含 S
+  const s = mk({ id: "S", name: "面漆" }), a = mk({ id: "A", name: "分支甲" }),
+        b = mk({ id: "B", name: "分支乙" }), c = mk({ id: "C", name: "共享底" }),
+        d = mk({ id: "D", name: "回环" });
+  s.refs = ["A", "B"];
+  a.refs = ["C"];
+  b.refs = ["C"];
+  c.refs = ["D"];
+  d.refs = ["C"];
+  const errs = Core.finalizeErrors([s, a, b, c, d], s.id);
+  const msg = errs.find(e => /循环引用/.test(e));
+  assert.ok(msg, "可达闭环必须拦住定稿");
+  // 显示从起点到闭环的完整引用链，闭环节点在链上重复出现
+  assert.strictEqual(msg, "存在循环引用：面漆 v1 → 分支甲 v1 → 共享底 v1 → 回环 v1 → 共享底 v1");
+  // 同一拓扑断开闭环（D 不再回指 C）后，循环引用错误消失
+  const dOpen = mk({ id: "D", name: "回环" });
+  const errsOpen = Core.finalizeErrors([s, a, b, c, dOpen], s.id);
+  assert.ok(!errsOpen.some(e => /循环引用/.test(e)));
+});
+
 t("定稿拦截：引用未定稿版本", () => {
   const a = mk(), b = mk({ refs: [a.id] });
   const errs = Core.finalizeErrors([a, b], b.id);

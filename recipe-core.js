@@ -63,32 +63,33 @@
   }
 
   /**
-   * 从 startId 出发沿引用边寻找回到 startId 的路径（循环引用）。
+   * 从 startId 出发检测可达子图中的任意闭环（不要求闭环经过起点）。
+   * 三色 DFS：命中当前链上的节点即成环，返回从起点到闭环的完整引用链，
+   * 如 [S, A, C, D, C] 表示 S 经 A 到达公共节点 C 后 C↔D 成环。
    * 起点指向自身的边由“自引用”单独报告，这里跳过，避免重复。
    */
   function findCyclePath(recipes, startId) {
     const map = byId(recipes);
-    const start = map.get(startId);
-    if (!start) return null;
-    const visited = new Set([startId]);
-    function dfs(currentId, path) {
-      if (currentId === startId) return path;
-      if (visited.has(currentId)) return null;
-      visited.add(currentId);
-      const node = map.get(currentId);
-      if (!node) return null;
-      for (const next of node.refs || []) {
-        const found = dfs(next, path.concat(next));
+    if (!map.has(startId)) return null;
+    const state = new Map(); // 1=在当前链上，2=已确认该节点下游无环
+    const stack = [];
+    function dfs(id) {
+      state.set(id, 1);
+      stack.push(id);
+      const node = map.get(id);
+      for (const next of (node && node.refs) || []) {
+        if (!map.has(next)) continue; // 悬空引用由 finalizeErrors 单独报告
+        if (next === startId && id === startId) continue; // 起点自引用单独报告
+        if (state.get(next) === 1) return stack.concat(next);
+        if (state.get(next) === 2) continue;
+        const found = dfs(next);
         if (found) return found;
       }
+      stack.pop();
+      state.set(id, 2);
       return null;
     }
-    for (const ref of start.refs || []) {
-      if (ref === startId) continue; // 自引用单独报告
-      const found = dfs(ref, [startId, ref]);
-      if (found) return found;
-    }
-    return null;
+    return dfs(startId);
   }
 
   /**
