@@ -51,11 +51,34 @@
     dialog::backdrop { background: rgba(0, 0, 0, 0.3); }
     .dialog-body { padding: 16px; display: grid; gap: 10px; }
     .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+    .recipe-layout { display: grid; grid-template-columns: 330px 1fr; gap: 14px; align-items: start; }
+    .recipe-form { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fbfdfb; align-content: start; }
+    .recipe-form h3 { margin: 0; font-size: 15px; }
+    .recipe-filters { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 10px; align-items: end; }
+    .range-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .compare-bar { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; margin-bottom: 12px; align-items: end; }
+    .family { border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 12px; background: #fbfdfb; }
+    .family > h3 { margin: 0 0 10px; font-size: 15px; display: flex; justify-content: space-between; gap: 10px; }
+    .versions { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+    .version { border: 1px solid #d7e0dc; border-left: 4px solid var(--amber); background: #fff; border-radius: 7px; padding: 9px; }
+    .version.final { border-left-color: var(--teal); }
+    .version header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; padding: 0; border: 0; background: none; }
+    .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; color: #fff; }
+    .badge.draft { background: var(--amber); }
+    .badge.final { background: var(--teal); }
+    .refs-editor { max-height: 150px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; padding: 8px; display: grid; gap: 6px; background: #fff; }
+    .refs-editor label { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--ink); }
+    .diff-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .diff-table th, .diff-table td { border: 1px solid var(--line); padding: 7px 9px; text-align: left; vertical-align: top; }
+    .diff-table th { background: #f2f6f4; }
+    .err-list { margin: 0; padding-left: 18px; color: var(--red); font-size: 13px; display: grid; gap: 4px; }
+    .hidden { display: none !important; }
     @media (max-width: 980px) {
       header { display: block; padding: 18px; }
       main { padding: 16px; }
       .top, .lists, .toolbar { grid-template-columns: 1fr; }
       .grid2 { grid-template-columns: 1fr; }
+      .recipe-layout, .recipe-filters, .compare-bar { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -118,6 +141,46 @@
         <div id="board" class="board"></div>
       </section>
     </section>
+
+    <section class="panel">
+      <h2>工艺配方版本库</h2>
+      <div class="recipe-layout">
+        <form id="recipeForm" class="recipe-form">
+          <h3>新建配方（v1 草稿）</h3>
+          <label>配方名称<input name="name" required placeholder="缠枝莲贴线配方"></label>
+          <label>主要材料<input name="material" required placeholder="天然大漆"></label>
+          <label>工序（每行一道）<textarea name="steps" placeholder="描稿&#10;搓线&#10;贴线"></textarea></label>
+          <label>参数（每行 键=值）<textarea name="params" placeholder="漆粉比=3:1&#10;阴干时长h=24"></textarea></label>
+          <label>备注<textarea name="note" placeholder="适用胎体、禁忌"></textarea></label>
+          <button type="submit">创建 v1 草稿</button>
+        </form>
+
+        <div>
+          <div class="recipe-filters">
+            <label>材料筛选<input id="rMaterial" placeholder="输入材料"></label>
+            <label>状态筛选<select id="rStatus"><option value="">全部状态</option><option value="draft">草稿</option><option value="final">定稿</option></select></label>
+            <label>参数名<input id="rParamKey" placeholder="如 阴干时长"></label>
+            <label>参数范围<span class="range-row"><input id="rParamMin" type="number" placeholder="下限"><input id="rParamMax" type="number" placeholder="上限"></span></label>
+            <label>引用关系<select id="rRefMode">
+              <option value="">全部</option>
+              <option value="hasRefs">有引用</option>
+              <option value="noRefs">无引用</option>
+              <option value="referenced">被引用</option>
+              <option value="refsTo">引用了所选版本</option>
+              <option value="referencedBy">被所选版本引用</option>
+            </select></label>
+            <label id="rRefTargetWrap" class="hidden">所选版本<select id="rRefTarget"></select></label>
+            <button id="rClearFilters" class="secondary" type="button">清空筛选</button>
+          </div>
+          <div class="compare-bar">
+            <label>版本 A<select id="compareA"></select></label>
+            <label>版本 B<select id="compareB"></select></label>
+            <button id="compareBtn" class="violet" type="button">比较差异</button>
+          </div>
+          <div id="recipeList"></div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <dialog id="detailDialog">
@@ -134,6 +197,45 @@
     </div>
   </dialog>
 
+  <dialog id="recipeDialog">
+    <div class="dialog-body">
+      <h2 id="recipeDialogTitle">编辑配方版本</h2>
+      <div id="recipeFinalHint" class="meta hidden">定稿版本只读，如需调整请「复制新版」生成草稿后再修改。</div>
+      <label>配方名称<input id="rdName"></label>
+      <label>主要材料<input id="rdMaterial"></label>
+      <label>工序（每行一道）<textarea id="rdSteps"></textarea></label>
+      <label>参数（每行 键=值）<textarea id="rdParams"></textarea></label>
+      <label>备注<textarea id="rdNote"></textarea></label>
+      <label>引用版本（勾选，定稿时校验）</label>
+      <div id="rdRefs" class="refs-editor"></div>
+      <div class="actions">
+        <button id="rdSave" type="button">保存修改</button>
+        <button id="rdClose" class="secondary" type="button">关闭</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="diffDialog">
+    <div class="dialog-body">
+      <h2 id="diffTitle">差异比较</h2>
+      <div id="diffContent"></div>
+      <div class="actions">
+        <button id="diffClose" class="secondary" type="button">关闭</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="msgDialog">
+    <div class="dialog-body">
+      <h2 id="msgTitle">提示</h2>
+      <div id="msgContent" class="meta"></div>
+      <div class="actions">
+        <button id="msgClose" class="secondary" type="button">知道了</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="recipe-core.js"></script>
   <script>
     const statuses = ["贴线中", "待阴干", "上金粉", "待交付"];
     const storageKey = "zfl42Works";
@@ -271,7 +373,8 @@
     });
     [statusFilter, themeFilter, sortMode].forEach(el => el.addEventListener("input", render));
     document.querySelector("#exportBtn").addEventListener("click", () => {
-      const blob = new Blob([JSON.stringify(works, null, 2)], { type: "application/json" });
+      const recipes = JSON.parse(localStorage.getItem("zfl42Recipes") || "[]");
+      const blob = new Blob([JSON.stringify({ works, recipes }, null, 2)], { type: "application/json" });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
       link.download = "lacquer-thread-works.json";
@@ -284,6 +387,268 @@
     window.showDetail = showDetail;
     save();
     render();
+  </script>
+
+  <script>
+    // ===== 工艺配方版本库 =====
+    const Core = RecipeCore;
+    const rKey = "zfl42Recipes";
+    const nowStr = () => new Date().toLocaleString();
+    const seedRecipes = [
+      { id: "seed-tx-v1", family: "fam-tx", name: "缠枝莲贴线配方", version: 1, material: "天然大漆",
+        steps: ["描稿", "搓线", "贴线", "阴干"],
+        params: [{ k: "漆粉比", v: "3:1" }, { k: "阴干时长h", v: "24" }, { k: "阴干温度℃", v: "25" }],
+        refs: [], status: "final", note: "基础贴线配比",
+        logs: ["创建 v1 草稿", "定稿"], createdAt: "2026-09-01", finalizedAt: "2026-09-02" },
+      { id: "seed-tx-v2", family: "fam-tx", name: "缠枝莲贴线配方", version: 2, material: "天然大漆",
+        steps: ["描稿", "搓线", "贴线", "阴干"],
+        params: [{ k: "漆粉比", v: "3:1" }, { k: "阴干时长h", v: "36" }, { k: "阴干温度℃", v: "24" }],
+        refs: ["seed-tx-v1"], status: "draft", note: "延长阴干观察翘线",
+        logs: ["复制自 v1"], createdAt: "2026-09-10", finalizedAt: "" },
+      { id: "seed-jz-v1", family: "fam-jz", name: "金粉罩面配方", version: 1, material: "金粉、透明漆",
+        steps: ["扫粉", "罩漆"],
+        params: [{ k: "金粉目数", v: "800" }, { k: "罩漆遍数", v: "2" }],
+        refs: [], status: "draft", note: "",
+        logs: ["创建 v1 草稿"], createdAt: "2026-09-12", finalizedAt: "" }
+    ];
+    let recipes = JSON.parse(localStorage.getItem(rKey) || "null") || seedRecipes;
+    let editingId = null;
+
+    const recipeForm = document.querySelector("#recipeForm");
+    const recipeList = document.querySelector("#recipeList");
+    const fMaterial = document.querySelector("#rMaterial");
+    const fStatus = document.querySelector("#rStatus");
+    const fParamKey = document.querySelector("#rParamKey");
+    const fParamMin = document.querySelector("#rParamMin");
+    const fParamMax = document.querySelector("#rParamMax");
+    const fRefMode = document.querySelector("#rRefMode");
+    const fRefTarget = document.querySelector("#rRefTarget");
+    const fRefTargetWrap = document.querySelector("#rRefTargetWrap");
+    const compareA = document.querySelector("#compareA");
+    const compareB = document.querySelector("#compareB");
+    const recipeDialog = document.querySelector("#recipeDialog");
+    const diffDialog = document.querySelector("#diffDialog");
+    const msgDialog = document.querySelector("#msgDialog");
+    const rdName = document.querySelector("#rdName");
+    const rdMaterial = document.querySelector("#rdMaterial");
+    const rdSteps = document.querySelector("#rdSteps");
+    const rdParams = document.querySelector("#rdParams");
+    const rdNote = document.querySelector("#rdNote");
+    const rdRefs = document.querySelector("#rdRefs");
+    const rdSave = document.querySelector("#rdSave");
+
+    function saveRecipes() {
+      localStorage.setItem(rKey, JSON.stringify(recipes));
+    }
+
+    function parseLines(text) {
+      return (text || "").split("\n").map(s => s.trim()).filter(Boolean);
+    }
+
+    function parseParams(text) {
+      return parseLines(text).map(line => {
+        const i = line.indexOf("=");
+        return i < 0 ? { k: line, v: "" } : { k: line.slice(0, i).trim(), v: line.slice(i + 1).trim() };
+      }).filter(p => p.k);
+    }
+
+    function paramsToText(params) {
+      return (params || []).map(p => `${p.k}=${p.v}`).join("\n");
+    }
+
+    function rLabel(r) { return `${r.name} v${r.version}`; }
+    function statusName(r) { return r.status === "final" ? "定稿" : "草稿"; }
+    function byVersion(a, b) { return a.name.localeCompare(b.name, "zh") || a.version - b.version; }
+
+    function showMsg(title, html) {
+      document.querySelector("#msgTitle").textContent = title;
+      document.querySelector("#msgContent").innerHTML = html;
+      msgDialog.showModal();
+    }
+
+    function filteredRecipes() {
+      return recipes
+        .filter(r => !fMaterial.value.trim() || r.material.includes(fMaterial.value.trim()))
+        .filter(r => !fStatus.value || r.status === fStatus.value)
+        .filter(r => Core.matchParamRange(r, fParamKey.value.trim(), fParamMin.value, fParamMax.value))
+        .filter(r => Core.matchRefMode(recipes, r, fRefMode.value, fRefTarget.value));
+    }
+
+    function versionCard(r) {
+      const refsText = (r.refs || []).map(id => Core.labelOf(recipes, id)).join("、");
+      const paramsText = (r.params || []).map(p => `${p.k}=${p.v}`).join("，") || "无参数";
+      const actions = r.status === "final"
+        ? `<button class="secondary act-view" onclick="openRecipe('${r.id}')">查看</button>
+           <button class="act-copy" onclick="copyVersion('${r.id}')">复制新版</button>
+           <button class="danger act-remove" onclick="removeVersion('${r.id}')">移除</button>`
+        : `<button class="act-edit" onclick="openRecipe('${r.id}')">编辑</button>
+           <button class="violet act-finalize" onclick="finalizeVersion('${r.id}')">定稿</button>
+           <button class="act-copy" onclick="copyVersion('${r.id}')">复制新版</button>
+           <button class="danger act-remove" onclick="removeVersion('${r.id}')">移除</button>`;
+      return `<article class="version ${r.status}" data-rid="${r.id}">
+        <header><b>v${r.version}</b><span class="badge ${r.status}">${statusName(r)}</span></header>
+        <div class="meta">材料：${r.material}<br>工序 ${(r.steps || []).length} 道 · ${paramsText}<br>引用：${refsText || "无"}</div>
+        <div class="actions">${actions}</div>
+      </article>`;
+    }
+
+    function renderList() {
+      const list = filteredRecipes();
+      const families = new Map();
+      list.forEach(r => {
+        if (!families.has(r.family)) families.set(r.family, []);
+        families.get(r.family).push(r);
+      });
+      const groups = [...families.values()].sort((a, b) => a[0].name.localeCompare(b[0].name, "zh"));
+      recipeList.innerHTML = groups.length ? groups.map(versions => {
+        const sorted = [...versions].sort((a, b) => b.version - a.version);
+        return `<div class="family">
+          <h3><span>${sorted[0].name}</span><span class="meta">${sorted.length} 个版本</span></h3>
+          <div class="versions">${sorted.map(versionCard).join("")}</div>
+        </div>`;
+      }).join("") : `<div class="empty">没有符合筛选条件的配方版本</div>`;
+    }
+
+    function renderSelects() {
+      const sorted = [...recipes].sort(byVersion);
+      const opts = sorted.map(r => `<option value="${r.id}">${rLabel(r)}（${statusName(r)}）</option>`).join("");
+      [compareA, compareB, fRefTarget].forEach(sel => {
+        const cur = sel.value;
+        sel.innerHTML = opts;
+        if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
+      });
+      if (compareB.options.length > 1 && compareA.value === compareB.value) compareB.selectedIndex = 1;
+    }
+
+    function renderRecipes() {
+      renderSelects();
+      renderList();
+    }
+
+    window.openRecipe = function (id) {
+      const r = recipes.find(x => x.id === id);
+      if (!r) return;
+      editingId = id;
+      const isFinal = r.status === "final";
+      document.querySelector("#recipeDialogTitle").textContent = `${isFinal ? "查看" : "编辑"} ${rLabel(r)}（${statusName(r)}）`;
+      document.querySelector("#recipeFinalHint").classList.toggle("hidden", !isFinal);
+      rdName.value = r.name;
+      rdMaterial.value = r.material;
+      rdSteps.value = (r.steps || []).join("\n");
+      rdParams.value = paramsToText(r.params);
+      rdNote.value = r.note || "";
+      rdRefs.innerHTML = [...recipes].sort(byVersion).map(x =>
+        `<label><input type="checkbox" value="${x.id}" ${(r.refs || []).includes(x.id) ? "checked" : ""} ${isFinal ? "disabled" : ""}>${rLabel(x)}（${statusName(x)}）${x.id === r.id ? "（自身）" : ""}</label>`
+      ).join("");
+      [rdName, rdMaterial, rdSteps, rdParams, rdNote].forEach(el => { el.disabled = isFinal; });
+      rdSave.classList.toggle("hidden", isFinal);
+      recipeDialog.showModal();
+    };
+
+    window.copyVersion = function (id) {
+      const copy = Core.copyAsNewVersion(recipes, id, nowStr());
+      if (!copy) return;
+      recipes.push(copy);
+      saveRecipes();
+      renderRecipes();
+    };
+
+    window.finalizeVersion = function (id) {
+      const errors = Core.finalizeErrors(recipes, id);
+      if (errors.length) {
+        showMsg("无法定稿", `<ul class="err-list">${errors.map(e => `<li>${e}</li>`).join("")}</ul>`);
+        return;
+      }
+      const r = recipes.find(x => x.id === id);
+      r.status = "final";
+      r.finalizedAt = nowStr();
+      r.logs.push(`${nowStr()} 定稿`);
+      saveRecipes();
+      renderRecipes();
+    };
+
+    window.removeVersion = function (id) {
+      const r = recipes.find(x => x.id === id);
+      const res = Core.removeRecipe(recipes, id);
+      if (!res.ok) {
+        showMsg("无法移除", `<p style="margin:0 0 6px">该版本被以下定稿版本引用，不可移除：</p><ul class="err-list">${res.blockers.map(b => `<li>${rLabel(b)}</li>`).join("")}</ul>`);
+        return;
+      }
+      if (!confirm(`确认移除 ${rLabel(r)}？引用它的草稿将同步移除该引用。`)) return;
+      recipes = res.recipes;
+      saveRecipes();
+      renderRecipes();
+    };
+
+    rdSave.addEventListener("click", () => {
+      const r = recipes.find(x => x.id === editingId);
+      if (!r || r.status === "final") return; // 定稿版本只读
+      r.name = rdName.value.trim() || r.name;
+      r.material = rdMaterial.value.trim();
+      r.steps = parseLines(rdSteps.value);
+      r.params = parseParams(rdParams.value);
+      r.note = rdNote.value.trim();
+      r.refs = [...rdRefs.querySelectorAll("input:checked")].map(i => i.value);
+      r.logs.push(`${nowStr()} 保存修改`);
+      saveRecipes();
+      renderRecipes();
+      recipeDialog.close();
+    });
+
+    recipeForm.addEventListener("submit", event => {
+      event.preventDefault();
+      const data = Object.fromEntries(new FormData(recipeForm).entries());
+      recipes.push({
+        id: Core.newId(),
+        family: Core.newId(),
+        name: data.name.trim(),
+        version: 1,
+        material: data.material.trim(),
+        steps: parseLines(data.steps),
+        params: parseParams(data.params),
+        refs: [],
+        status: "draft",
+        note: data.note.trim(),
+        logs: [`${nowStr()} 创建 v1 草稿`],
+        createdAt: nowStr(),
+        finalizedAt: ""
+      });
+      recipeForm.reset();
+      saveRecipes();
+      renderRecipes();
+    });
+
+    document.querySelector("#compareBtn").addEventListener("click", () => {
+      const a = recipes.find(x => x.id === compareA.value);
+      const b = recipes.find(x => x.id === compareB.value);
+      if (!a || !b) { showMsg("无法比较", "请先创建至少一个配方版本。"); return; }
+      const rows = Core.diffVersions(a, b, recipes);
+      document.querySelector("#diffTitle").textContent = `差异比较：${rLabel(a)} ↔ ${rLabel(b)}`;
+      document.querySelector("#diffContent").innerHTML = rows.length
+        ? `<table class="diff-table"><tr><th>字段</th><th>${rLabel(a)}</th><th>${rLabel(b)}</th></tr>${rows.map(row => `<tr><td>${row.field}</td><td>${row.a}</td><td>${row.b}</td></tr>`).join("")}</table>`
+        : `<div class="empty">两个版本的字段完全一致</div>`;
+      diffDialog.showModal();
+    });
+
+    [fMaterial, fStatus, fParamKey, fParamMin, fParamMax, fRefMode, fRefTarget].forEach(el =>
+      el.addEventListener("input", () => {
+        fRefTargetWrap.classList.toggle("hidden", !(fRefMode.value === "refsTo" || fRefMode.value === "referencedBy"));
+        renderList();
+      })
+    );
+    document.querySelector("#rClearFilters").addEventListener("click", () => {
+      [fMaterial, fParamKey, fParamMin, fParamMax].forEach(el => { el.value = ""; });
+      fStatus.value = "";
+      fRefMode.value = "";
+      fRefTargetWrap.classList.add("hidden");
+      renderList();
+    });
+    document.querySelector("#rdClose").addEventListener("click", () => recipeDialog.close());
+    document.querySelector("#diffClose").addEventListener("click", () => diffDialog.close());
+    document.querySelector("#msgClose").addEventListener("click", () => msgDialog.close());
+
+    saveRecipes();
+    renderRecipes();
   </script>
 </body>
 </html>
